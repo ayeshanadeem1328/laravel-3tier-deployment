@@ -17,7 +17,17 @@ pipeline {
             }
         }
 
-        stage('PHP Syntax Test') {
+        stage('Build') {
+            steps {
+                sh '''
+                    set -eu
+                    docker build -t laravel-3tier-backend -f Dockerfile .
+                    docker build -t laravel-3tier-frontend -f nginx/Dockerfile .
+                '''
+            }
+        }
+
+        stage('Test') {
             steps {
                 sh '''
                     set -eu
@@ -30,46 +40,23 @@ pipeline {
             }
         }
 
-        stage('Build Docker Images') {
-            steps {
-                sh '''
-                    set -eu
-                    docker build -t laravel-3tier-backend -f Dockerfile .
-                    docker build -t laravel-3tier-frontend -f nginx/Dockerfile .
-                '''
-            }
-        }
-
-        stage('Deploy to Ubuntu') {
+        stage('Deploy') {
             steps {
                 sh 'sudo -n /usr/local/sbin/deploy-laravel-3tier'
-            }
-        }
 
-        stage('HTTP Health Check') {
-            steps {
                 sh '''
                     set -eu
                     for attempt in $(seq 1 15); do
                         if curl -fsS http://127.0.0.1:8081/ >/dev/null; then
-                            echo "PASS: Laravel is responding on port 8081"
+                            echo "SUCCESS: Laravel is responding on port 8081"
                             exit 0
                         fi
                         sleep 2
                     done
-                    echo "FAIL: Laravel health check failed"
+                    echo "FAILURE: Laravel health check failed"
                     exit 1
                 '''
             }
-        }
-    }
-
-    post {
-        success {
-            echo 'SUCCESS: PHP validation, Docker build, deployment and HTTP check completed.'
-        }
-        failure {
-            echo 'FAILED: Check Console Output for the failed stage.'
         }
     }
 }
