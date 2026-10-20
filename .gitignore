@@ -1,0 +1,24 @@
+# Local environment secrets
+app/.env
+app/.env.*
+!app/.env.example
+
+# PHP and Node dependencies
+app/vendor/
+app/node_modules/
+
+# Generated frontend assets
+app/public/build/
+
+# Laravel logs and generated cache
+app/storage/logs/*.log
+app/bootstrap/cache/*.php
+
+# Local backup
+compose.yaml.bak
+
+# Operating system files
+.DS_Store
+
+# Local Compose environment
+/.env
