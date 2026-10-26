@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        image: laravel-3tier-backend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9000
+        env:
+        - name: APP_ENV
+          value: production
+        - name: APP_DEBUG
+          value: "false"
+        - name: LOG_CHANNEL
+          value: stderr
+        - name: SESSION_DRIVER
+          value: database
+        - name: CACHE_STORE
+          value: database
+        - name: DB_CONNECTION
+          value: mysql
+        - name: DB_HOST
+          value: mysql-service
+        - name: DB_PORT
+          value: "3306"
+        - name: APP_KEY
+          valueFrom:
+            secretKeyRef:
+              name: laravel-secret
+              key: APP_KEY
+        - name: DB_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: laravel-secret
+              key: DB_DATABASE
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: laravel-secret
+              key: DB_USERNAME
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: laravel-secret
+              key: DB_PASSWORD
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector:
+    app: backend
+  ports:
+  - port: 9000
+    targetPort: 9000

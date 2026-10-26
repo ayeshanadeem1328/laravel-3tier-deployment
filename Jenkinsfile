@@ -1,79 +1,83 @@
 pipeline {
     agent any
-
     options {
         timestamps()
         disableConcurrentBuilds()
     }
-
     triggers {
         pollSCM('H/2 * * * *')
     }
-
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
-
-        stage('Build') {
+        stage('Build Images') {
             steps {
-                echo 'Starting Docker image build...'
                 sh '''
                     set -eu
-                    docker build -t laravel-3tier-backend -f Dockerfile .
-                    docker build -t laravel-3tier-frontend -f nginx/Dockerfile .
+                    docker build -t laravel-3tier-backend:${BUILD_NUMBER} -f Dockerfile .
+                    docker build -t laravel-3tier-frontend:${BUILD_NUMBER} -f nginx/Dockerfile .
                 '''
             }
         }
-
         stage('Test') {
             steps {
-                echo 'Running PHP syntax tests...'
                 sh '''
                     set -eu
-                    docker run --rm \
-                      -v "$WORKSPACE/app:/src:ro" \
-                      -w /src \
-                      php:8.4-cli \
+                    docker run --rm -v "$WORKSPACE/app:/src:ro" -w /src php:8.4-cli \
                       sh -ec 'find app bootstrap config database public routes tests -type f -name "*.php" -print0 | xargs -0 -r -n1 php -l'
                 '''
-                echo 'Build and tests successful!'
             }
         }
-
-        stage('Deploy') {
+        stage('Load Images into Kubernetes') {
             steps {
-                echo 'Deploying Laravel to Ubuntu...'
-                sh 'sudo -n /usr/local/sbin/deploy-laravel-3tier'
-
                 sh '''
                     set -eu
-                    for attempt in $(seq 1 15); do
-                        if curl -fsS http://127.0.0.1:8081/ >/dev/null; then
-                            echo "Laravel HTTP health check: PASS"
-                            exit 0
-                        fi
-                        sleep 2
-                    done
-                    echo "Laravel HTTP health check: FAIL"
-                    exit 1
+                    minikube image load laravel-3tier-backend:${BUILD_NUMBER}
+                    minikube image load laravel-3tier-frontend:${BUILD_NUMBER}
+                '''
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                sh '''
+                    set -eu
+                    kubectl apply -f k8s/mysql.yaml
+                    kubectl rollout status deployment/mysql --timeout=240s
+                    kubectl apply -f k8s/backend.yaml
+                    kubectl apply -f k8s/frontend.yaml
+                    kubectl set image deployment/backend backend=laravel-3tier-backend:${BUILD_NUMBER}
+                    kubectl set image deployment/frontend frontend=laravel-3tier-frontend:${BUILD_NUMBER}
+                    kubectl rollout status deployment/backend --timeout=240s
+                    kubectl rollout status deployment/frontend --timeout=240s
+                '''
+            }
+        }
+        stage('Migrate Database') {
+            steps {
+                sh 'kubectl exec deploy/backend -- php artisan migrate --force'
+            }
+        }
+        stage('Verify') {
+            steps {
+                sh '''
+                    set -eu
+                    kubectl get pods
+                    kubectl get svc
+                    kubectl exec deploy/frontend -- wget -S -qO /dev/null http://127.0.0.1/
+                    echo "Laravel HTTP health check: PASS"
                 '''
             }
         }
     }
-
     post {
         success {
-            echo 'Build and tests successful!'
-            echo 'Deployment completed successfully!'
+            echo 'Laravel deployed on Kubernetes successfully!'
         }
         failure {
-            echo 'Build, tests or deployment failed. Check Console Output.'
-        }
-        always {
-            echo 'Pipeline execution finished.'
+            echo 'Pipeline failed. Check Console Output.'
         }
     }
 }
